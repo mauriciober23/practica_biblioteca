@@ -87,28 +87,46 @@ def guardar_prestamos(prestamos):
 
 def cargar_libros():
     libros = []
+    hay_invalidos = False
 
     try:
         with open(ARCHIVO_LIBROS, "r", encoding="utf-8") as archivo:
-            for linea in archivo:
-                if linea.strip() != "":
-                    datos = linea.strip().split(",")
+            for numero_linea, linea in enumerate(archivo, start=1):
+                if linea.strip() == "":
+                    continue
 
-                    try:
-                        if len(datos) == 4:
-                            libro = Libro(
-                                int(datos[0]),
-                                datos[1],
-                                datos[2],
-                                datos[3]
-                            )
+                datos = linea.strip().split(",")
 
-                            libros.append(libro)
-                        else:
-                            print("Una linea de libros esta incompleta.")
+                try:
+                    if len(datos) != 4:
+                        raise ValueError("se necesitan exactamente 4 campos")
 
-                    except ValueError:
-                        print("Hay un codigo incorrecto en libros.txt.")
+                    codigo = int(datos[0])
+                    titulo = datos[1].strip()
+                    autor = datos[2].strip()
+                    estado = datos[3].strip()
+
+                    if codigo <= 0:
+                        raise ValueError("el codigo debe ser positivo")
+
+                    if titulo == "" or autor == "":
+                        raise ValueError("titulo y autor son obligatorios")
+
+                    if estado not in ("Disponible", "Prestado"):
+                        raise ValueError(
+                            "el estado debe ser Disponible o Prestado"
+                        )
+
+                    libros.append(
+                        Libro(codigo, titulo, autor, estado)
+                    )
+
+                except ValueError as error:
+                    hay_invalidos = True
+                    print(
+                        f"{ARCHIVO_LIBROS}, linea {numero_linea}: "
+                        f"registro ignorado ({error})."
+                    )
 
     except FileNotFoundError:
         libros.append(
@@ -139,39 +157,79 @@ def cargar_libros():
         )
 
         guardar_libros(libros)
-        print("Se agregaron los tres libros iniciales.")
+        print("Se crearon los tres libros iniciales.")
+
+    if hay_invalidos:
+        print(
+            f"Advertencia: al guardar {ARCHIVO_LIBROS}, "
+            "las lineas invalidas ignoradas no se conservaran."
+        )
 
     return libros
 
 
 def cargar_prestamos():
     prestamos = []
+    hay_invalidos = False
 
     try:
         with open(ARCHIVO_PRESTAMOS, "r", encoding="utf-8") as archivo:
-            for linea in archivo:
-                if linea.strip() != "":
-                    datos = linea.strip().split(",")
+            for numero_linea, linea in enumerate(archivo, start=1):
+                if linea.strip() == "":
+                    continue
 
-                    try:
-                        if len(datos) == 5:
-                            prestamo = Prestamo(
-                                int(datos[0]),
-                                int(datos[1]),
-                                datos[2],
-                                datos[3],
-                                datos[4]
-                            )
+                datos = linea.strip().split(",")
 
-                            prestamos.append(prestamo)
-                        else:
-                            print("Una linea de prestamos esta incompleta.")
+                try:
+                    if len(datos) != 5:
+                        raise ValueError("se necesitan exactamente 5 campos")
 
-                    except ValueError:
-                        print("Hay un numero incorrecto en prestamos.txt.")
+                    numero = int(datos[0])
+                    codigo_libro = int(datos[1])
+                    estudiante = datos[2].strip()
+                    fecha = datos[3].strip()
+                    estado = datos[4].strip()
+
+                    if numero <= 0 or codigo_libro <= 0:
+                        raise ValueError(
+                            "numero y codigo deben ser positivos"
+                        )
+
+                    if estudiante == "" or fecha == "":
+                        raise ValueError(
+                            "estudiante y fecha son obligatorios"
+                        )
+
+                    if estado not in ("Activo", "Devuelto"):
+                        raise ValueError(
+                            "el estado debe ser Activo o Devuelto"
+                        )
+
+                    prestamos.append(
+                        Prestamo(
+                            numero,
+                            codigo_libro,
+                            estudiante,
+                            fecha,
+                            estado
+                        )
+                    )
+
+                except ValueError as error:
+                    hay_invalidos = True
+                    print(
+                        f"{ARCHIVO_PRESTAMOS}, linea {numero_linea}: "
+                        f"registro ignorado ({error})."
+                    )
 
     except FileNotFoundError:
         guardar_prestamos(prestamos)
+
+    if hay_invalidos:
+        print(
+            f"Advertencia: al guardar {ARCHIVO_PRESTAMOS}, "
+            "las lineas invalidas ignoradas no se conservaran."
+        )
 
     return prestamos
 
@@ -179,11 +237,10 @@ def cargar_prestamos():
 def leer_entero(mensaje):
     while True:
         try:
-            numero = int(input(mensaje))
-            return numero
+            return int(input(mensaje))
 
         except ValueError:
-            print("Ingrese un numero entero, vuelva a intentar.")
+            print("Dato incorrecto, ingrese un numero entero.")
 
 
 def leer_texto(mensaje):
@@ -191,10 +248,10 @@ def leer_texto(mensaje):
         texto = input(mensaje).strip()
 
         if texto == "":
-            print("Debe escribir este dato.")
+            print("Este dato no puede quedar vacio.")
 
         elif "," in texto:
-            print("El texto no puede tener comas.")
+            print("No coloque comas, vuelva a escribir.")
 
         else:
             return texto
@@ -208,20 +265,68 @@ def buscar_por_codigo(libros, codigo):
     return None
 
 
-def registrar_libro(libros):
-    print("\nAGREGAR UN LIBRO")
+def comprobar_coherencia(libros, prestamos):
+    correcto = True
 
-    siguiente_codigo = 1
+    for prestamo in prestamos:
+        libro = buscar_por_codigo(libros, prestamo.codigo_libro)
+
+        if libro is None:
+            print(
+                f"Advertencia en {ARCHIVO_PRESTAMOS}: "
+                f"el prestamo {prestamo.numero} refiere al libro "
+                f"{prestamo.codigo_libro}, que no existe "
+                f"en {ARCHIVO_LIBROS}."
+            )
+            correcto = False
 
     for libro in libros:
-        if libro.codigo >= siguiente_codigo:
-            siguiente_codigo = libro.codigo + 1
+        activos = 0
 
-    titulo = leer_texto("Titulo del libro: ")
-    autor = leer_texto("Autor del libro: ")
+        for prestamo in prestamos:
+            if prestamo.codigo_libro == libro.codigo:
+                if prestamo.estado == "Activo":
+                    activos += 1
+
+        if libro.estado == "Prestado" and activos != 1:
+            print(
+                f"Advertencia: el libro {libro.codigo} esta Prestado "
+                f"y tiene {activos} prestamos activos. "
+                "Debe tener exactamente uno."
+            )
+            correcto = False
+
+        elif libro.estado == "Disponible" and activos > 0:
+            print(
+                f"Advertencia: el libro {libro.codigo} "
+                f"esta Disponible y tiene {activos} prestamos activos."
+            )
+            correcto = False
+
+    if not correcto:
+        print(
+            "Los registros se mantienen con sus estados actuales. "
+            "Las operaciones y la salida guardaran los datos "
+            "que estan en memoria."
+        )
+
+    return correcto
+
+
+def registrar_libro(libros):
+    print("\nREGISTRAR NUEVO LIBRO")
+
+    codigo = 1
+
+    for libro in libros:
+        if libro.codigo >= codigo:
+            codigo = libro.codigo + 1
+
+    titulo = leer_texto("Nombre del libro: ")
+    autor = leer_texto("Nombre del autor: ")
 
     nuevo_libro = Libro(
-        siguiente_codigo,
+        codigo,
         titulo,
         autor,
         "Disponible"
@@ -237,7 +342,7 @@ def registrar_libro(libros):
 
 
 def mostrar_libros(libros):
-    print("\nCATALOGO DE LA BIBLIOTECA")
+    print("\nLISTA DE LIBROS")
     print("-" * 90)
 
     print(
@@ -253,16 +358,16 @@ def mostrar_libros(libros):
         libro.mostrar()
 
     if len(libros) == 0:
-        print("No hay libros registrados.")
+        print("No hay libros para mostrar.")
 
     print("-" * 90)
-    print(f"Cantidad de libros: {len(libros)}")
+    print(f"Se muestran {len(libros)} libros.")
 
     return len(libros)
 
 
 def buscar_libro(libros):
-    print("\nBUSQUEDA POR TITULO")
+    print("\nBUSCAR UN LIBRO")
 
     palabra = leer_texto("Palabra que desea buscar: ").lower()
     encontrados = []
@@ -272,7 +377,7 @@ def buscar_libro(libros):
             encontrados.append(libro)
 
     if len(encontrados) == 0:
-        print("No se encontraron libros con esa palabra.")
+        print("No se encontro un titulo con esa palabra.")
     else:
         mostrar_libros(encontrados)
 
@@ -280,29 +385,29 @@ def buscar_libro(libros):
 
 
 def prestar_libro(libros, prestamos):
-    print("\nNUEVO PRESTAMO")
+    print("\nPRESTAR UN LIBRO")
 
-    codigo = leer_entero("Codigo del libro: ")
+    codigo = leer_entero("Escriba el codigo: ")
     libro = buscar_por_codigo(libros, codigo)
 
     if libro is None:
-        print("No existe un libro con ese codigo.")
+        print("Ese codigo no esta registrado.")
         return False
 
     if libro.estado != "Disponible":
-        print("El libro ya esta prestado.")
+        print("El libro no esta disponible para prestarlo.")
         return False
 
-    siguiente_numero = 1
+    numero = 1
 
     for prestamo in prestamos:
-        if prestamo.numero >= siguiente_numero:
-            siguiente_numero = prestamo.numero + 1
+        if prestamo.numero >= numero:
+            numero = prestamo.numero + 1
 
-    estudiante = leer_texto("Nombre del estudiante: ")
+    estudiante = leer_texto("Estudiante que recibe el libro: ")
 
     nuevo_prestamo = Prestamo(
-        siguiente_numero,
+        numero,
         codigo,
         estudiante,
         str(date.today()),
@@ -315,25 +420,25 @@ def prestar_libro(libros, prestamos):
     guardar_libros(libros)
     guardar_prestamos(prestamos)
 
-    print("\nPrestamo registrado.")
-    print(f"Libro: {libro.titulo}")
+    print("\nPrestamo realizado.")
+    print(f"Libro entregado: {libro.titulo}")
     print(nuevo_prestamo)
 
     return True
 
 
 def devolver_libro(libros, prestamos):
-    print("\nDEVOLUCION DE LIBRO")
+    print("\nDEVOLVER UN LIBRO")
 
     codigo = leer_entero("Codigo del libro que devuelve: ")
     libro = buscar_por_codigo(libros, codigo)
 
     if libro is None:
-        print("El codigo ingresado no existe.")
+        print("Ese libro no existe.")
         return False
 
     if libro.estado != "Prestado":
-        print("Ese libro ya esta disponible.")
+        print("El libro ya esta disponible.")
         return False
 
     prestamo_activo = None
@@ -345,28 +450,28 @@ def devolver_libro(libros, prestamos):
                 break
 
     if prestamo_activo is None:
-        print("No se encontro un prestamo activo para ese libro.")
+        print("No se encontro un prestamo activo para este libro.")
         return False
 
-    libro.cambiar_estado("Disponible")
     prestamo_activo.cambiar_estado("Devuelto")
+    libro.cambiar_estado("Disponible")
 
     guardar_libros(libros)
     guardar_prestamos(prestamos)
 
-    print(f"Libro devuelto: {libro.titulo}")
-    print("La devolucion se guardo correctamente.")
+    print(f"Devolucion registrada: {libro.titulo}")
+    print("El libro se puede prestar nuevamente.")
 
     return True
 
 
 def mostrar_prestamos(prestamos, libros):
-    print("\nHISTORIAL DE PRESTAMOS")
+    print("\nPRESTAMOS REALIZADOS")
     print("-" * 105)
 
     print(
         f"{'Numero':<8}"
-        f"{'Libro':<34}"
+        f"{'Titulo del libro':<34}"
         f"{'Estudiante':<30}"
         f"{'Fecha':<14}"
         f"{'Estado'}"
@@ -376,7 +481,7 @@ def mostrar_prestamos(prestamos, libros):
 
     for prestamo in prestamos:
         libro = buscar_por_codigo(libros, prestamo.codigo_libro)
-        titulo = "Libro sin informacion"
+        titulo = "Libro no encontrado"
 
         if libro is not None:
             titulo = libro.titulo
@@ -384,7 +489,7 @@ def mostrar_prestamos(prestamos, libros):
         prestamo.mostrar(titulo)
 
     if len(prestamos) == 0:
-        print("Todavia no hay prestamos registrados.")
+        print("Aun no se realizan prestamos.")
 
     print("-" * 105)
     print(f"Cantidad de prestamos: {len(prestamos)}")
@@ -431,7 +536,7 @@ def salir(libros, prestamos):
     guardar_libros(libros)
     guardar_prestamos(prestamos)
 
-    print("\nInformacion guardada, asta luego.")
+    print("\nDatos guardados. Hasta luego.")
 
     return 8
 
@@ -441,21 +546,22 @@ def main():
         libros = cargar_libros()
         prestamos = cargar_prestamos()
 
-    except OSError:
-        print("No se pudieron abrir o crear los archivos.")
-        print("Revise los permisos de la carpeta.")
+    except (OSError, UnicodeError) as error:
+        print(f"No se pudieron cargar los archivos: {error}")
         return
+
+    comprobar_coherencia(libros, prestamos)
 
     opcion = 0
 
     while opcion != 8:
         print("""
 ****************************************
-        BIBLIOTECA TEC AZUAY
+         BIBLIOTECA TEC AZUAY
 ****************************************
   1. Registrar libro
   2. Mostrar libros
-  3. Buscar libro
+  3. Buscar por titulo
   4. Prestar libro
   5. Devolver libro
   6. Mostrar prestamos
@@ -464,7 +570,7 @@ def main():
 ****************************************
 """)
 
-        opcion = leer_entero("Ingrese una opcion: ")
+        opcion = leer_entero("Escoja una opcion: ")
 
         try:
             if opcion == 1:
@@ -492,12 +598,13 @@ def main():
                 salir(libros, prestamos)
 
             else:
-                print("Opcion incorrecta, ingrese del 1 al 8.")
+                print("Opcion incorrecta. Escoja del 1 al 8.")
 
-        except OSError:
-            print("No se pudieron guardar los datos.")
-            print("Revise la carpeta y vuelva a intentar.")
+        except OSError as error:
+            print(f"No se pudieron guardar los datos: {error}")
+            print("Los cambios siguen en memoria. Intente guardar otra vez.")
             opcion = 0
 
 
-main()
+if __name__ == "__main__":
+    main()
